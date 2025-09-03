@@ -40,6 +40,10 @@ RUN chown -R node:node .
 # Switch to non-root user (node user already exists in node:20-alpine)
 USER node
 
+# Copy and set up startup script
+COPY start.sh /usr/src/start.sh
+RUN chmod +x /usr/src/start.sh
+
 EXPOSE 3000
 
-CMD [ "pnpm", "start" ]
+CMD ["/usr/src/start.sh"]

@@ -1,0 +1,153 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: flowise-main
+  labels:
+    app: flowise
+    component: main
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/memory: "2Gi"
+        run.googleapis.com/cpu: "2"
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/timeout: "300s"
+    spec:
+      containerConcurrency: 80
+      containers:
+      - image: REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY/flowise-main:latest
+        ports:
+        - containerPort: 3000
+        env:
+        # Core Configuration
+        - name: PORT
+          value: "3000"
+        - name: MODE
+          value: "main"
+        
+        # Database Configuration
+        - name: DATABASE_TYPE
+          value: "postgres"
+        - name: DATABASE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: host
+        - name: DATABASE_PORT
+          value: "5432"
+        - name: DATABASE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: database
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: username
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: password
+        - name: DATABASE_SSL
+          value: "true"
+        
+        # Storage Configuration (Google Cloud Storage)
+        - name: STORAGE_TYPE
+          value: "gcs"
+        - name: GOOGLE_CLOUD_STORAGE_PROJ_ID
+          value: "PROJECT_ID"
+        - name: GOOGLE_CLOUD_STORAGE_BUCKET_NAME
+          value: "flowise-storage-bucket"
+        - name: GOOGLE_CLOUD_UNIFORM_BUCKET_ACCESS
+          value: "true"
+        
+        # Queue Configuration (Redis)
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: flowise-redis-config
+              key: host
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flowise-redis-config
+              key: auth_string
+        - name: QUEUE_NAME
+          value: "flowise-queue"
+        
+        # Secret Keys
+        - name: SECRETKEY_STORAGE_TYPE
+          value: "local"
+        - name: SECRETKEY_PATH
+          value: "/tmp/.flowise"
+        - name: JWT_AUTH_TOKEN_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: flowise-auth-secrets
+              key: jwt_token_secret
+        - name: JWT_REFRESH_TOKEN_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: flowise-auth-secrets
+              key: jwt_refresh_token_secret
+        - name: JWT_ISSUER
+          value: "flowise-prepgen"
+        - name: JWT_AUDIENCE
+          value: "flowise-users"
+        - name: JWT_TOKEN_EXPIRY_IN_MINUTES
+          value: "360"
+        - name: JWT_REFRESH_TOKEN_EXPIRY_IN_MINUTES
+          value: "43200"
+        
+        # Logging
+        - name: LOG_LEVEL
+          value: "info"
+        - name: LOG_PATH
+          value: "/tmp/.flowise/logs"
+        
+        # Settings
+        - name: CORS_ORIGINS
+          value: "*"
+        - name: FLOWISE_FILE_SIZE_LIMIT
+          value: "50mb"
+        - name: SHOW_COMMUNITY_NODES
+          value: "true"
+        - name: DISABLE_FLOWISE_TELEMETRY
+          value: "true"
+        
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /api/v1/ping
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /api/v1/ping
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 2
