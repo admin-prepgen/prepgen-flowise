@@ -1,0 +1,25 @@
+# Terraform files
+*.tfvars
+!*.tfvars.example
+terraform.tfstate*
+.terraform/
+.terraform.lock.hcl
+
+# Environment files
+.env.production
+.env.staging
+.env.local
+
+# Secret files
+secrets/
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.DS_Store

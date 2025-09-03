@@ -1,0 +1,137 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: flowise-worker
+  labels:
+    app: flowise
+    component: worker
+  annotations:
+    run.googleapis.com/ingress: internal
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/memory: "2Gi"
+        run.googleapis.com/cpu: "2"
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/timeout: "3600s"
+    spec:
+      containerConcurrency: 1
+      containers:
+      - image: REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY/flowise-worker:latest
+        ports:
+        - containerPort: 5566
+        env:
+        # Core Configuration
+        - name: WORKER_PORT
+          value: "5566"
+        - name: MODE
+          value: "worker"
+        
+        # Database Configuration
+        - name: DATABASE_TYPE
+          value: "postgres"
+        - name: DATABASE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: host
+        - name: DATABASE_PORT
+          value: "5432"
+        - name: DATABASE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: database
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: username
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flowise-db-config
+              key: password
+        - name: DATABASE_SSL
+          value: "true"
+        
+        # Storage Configuration (Google Cloud Storage)
+        - name: STORAGE_TYPE
+          value: "gcs"
+        - name: GOOGLE_CLOUD_STORAGE_PROJ_ID
+          value: "PROJECT_ID"
+        - name: GOOGLE_CLOUD_STORAGE_BUCKET_NAME
+          value: "flowise-storage-bucket"
+        - name: GOOGLE_CLOUD_UNIFORM_BUCKET_ACCESS
+          value: "true"
+        
+        # Queue Configuration (Redis)
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: flowise-redis-config
+              key: host
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flowise-redis-config
+              key: auth_string
+        - name: QUEUE_NAME
+          value: "flowise-queue"
+        - name: WORKER_CONCURRENCY
+          value: "5"
+        
+        # Secret Keys
+        - name: SECRETKEY_STORAGE_TYPE
+          value: "local"
+        - name: SECRETKEY_PATH
+          value: "/tmp/.flowise"
+        
+        # Logging
+        - name: LOG_LEVEL
+          value: "info"
+        - name: LOG_PATH
+          value: "/tmp/.flowise/logs"
+        
+        # Settings
+        - name: FLOWISE_FILE_SIZE_LIMIT
+          value: "50mb"
+        - name: DISABLE_FLOWISE_TELEMETRY
+          value: "true"
+        
+        # Tool Dependencies
+        - name: TOOL_FUNCTION_BUILTIN_DEP
+          value: "crypto,fs"
+        
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5566
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5566
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 2

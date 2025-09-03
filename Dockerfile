@@ -33,6 +33,10 @@ RUN pnpm install
 
 RUN pnpm build
 
+# Copy and set up startup script
+COPY start.sh /usr/src/start.sh
+RUN chmod +x /usr/src/start.sh
+
 EXPOSE 3000
 
-CMD [ "pnpm", "start" ]
+CMD ["/usr/src/start.sh"]

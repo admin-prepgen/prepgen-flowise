@@ -1,0 +1,23 @@
+# Copy this file to terraform.tfvars and update with your values
+
+# Required: Your GCP project ID
+project_id = "your-gcp-project-id"
+
+# Optional: GCP region (default: us-central1)
+region = "us-central1"
+
+# Optional: Database tier (default: db-f1-micro)
+# Options: db-f1-micro, db-g1-small, db-custom-1-3840, db-custom-2-7680, db-custom-4-15360
+db_tier = "db-f1-micro"
+
+# Optional: Redis tier (default: BASIC)
+# Options: BASIC, STANDARD_HA
+redis_tier = "BASIC"
+
+# Optional: Redis memory size in GiB (default: 1)
+# Range: 1-300
+redis_memory_size = 1
+
+# Optional: Environment tag (default: prod)
+# Options: dev, staging, prod
+environment = "prod"
