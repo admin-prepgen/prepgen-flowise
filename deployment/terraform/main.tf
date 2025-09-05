@@ -78,7 +78,7 @@ resource "google_storage_bucket" "flowise_storage" {
 
 # Data source to get default VPC network
 data "google_compute_network" "default" {
-  name = "default"
+  name = var.vpc_network
 }
 
 # Private IP range for Google services (using default VPC)
@@ -193,6 +193,7 @@ resource "google_redis_instance" "flowise_redis" {
   region         = var.region
 
   auth_enabled = true
+  authorized_network = data.google_compute_network.default.id
   
   depends_on = [google_project_service.required_apis]
 }

@@ -54,3 +54,9 @@ variable "environment" {
     error_message = "The environment must be one of: dev, staging, prod."
   }
 }
+
+variable "vpc_network" {
+  description = "The name of the VPC network to use"
+  type        = string
+  default     = "default"
+}

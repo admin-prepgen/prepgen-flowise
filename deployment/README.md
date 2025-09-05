@@ -76,22 +76,33 @@ deployment/
 
 ### Step 1: Configure Your Deployment
 
-1. **Copy and configure Terraform variables:**
+1. **Copy and configure Terraform variables for each environment**:
    ```bash
-   cp deployment/terraform/terraform.tfvars.example deployment/terraform/terraform.tfvars
+   cp deployment/terraform/terraform.tfvars.example deployment/terraform/terraform.tfvars.stg
+   cp deployment/terraform/terraform.tfvars.example deployment/terraform/terraform.tfvars.prd
    ```
    
-   Edit `terraform.tfvars` with your GCP project ID:
+   Edit `terraform.tfvars.stg` with your staging GCP project ID:
    ```hcl
-   project_id = "your-gcp-project-id"
+   project_id = "prepgen-2-stg"
    region = "us-central1"                    # Optional
    db_tier = "db-f1-micro"                   # Optional
    redis_tier = "BASIC"                      # Optional
    redis_memory_size = 1                     # Optional
+   environment = "staging"                   # Optional
+   ```
+
+   Edit `terraform.tfvars.prd` with your production GCP project ID:
+   ```hcl
+   project_id = "prepgen-prd"
+   region = "us-central1"                    # Optional
+   db_tier = "db-g1-small"                   # Optional
+   redis_tier = "STANDARD_HA"                # Optional
+   redis_memory_size = 2                     # Optional
    environment = "prod"                      # Optional
    ```
 
-2. **Copy and configure environment variables (optional):**
+2. **Copy and configure environment variables (optional)**:
    ```bash
    cp deployment/.env.production.example deployment/.env.production
    ```
@@ -104,8 +115,11 @@ deployment/
 # Make scripts executable
 chmod +x deployment/scripts/*.sh
 
-# Deploy infrastructure (Cloud SQL, Redis, Storage, etc.)
-./deployment/scripts/deploy-infrastructure.sh
+# Deploy infrastructure to staging
+./deployment/scripts/deploy-infrastructure.sh stg
+
+# Deploy infrastructure to production
+./deployment/scripts/deploy-infrastructure.sh prd
 ```
 
 This will:
@@ -119,8 +133,11 @@ This will:
 ### Step 3: Deploy Application
 
 ```bash
-# Build and deploy the application
-./deployment/scripts/deploy-application.sh
+# Build and deploy the application to staging
+./deployment/scripts/deploy-application.sh stg
+
+# Build and deploy the application to production
+./deployment/scripts/deploy-application.sh prd
 ```
 
 This will:
@@ -221,7 +238,7 @@ git fetch upstream
 git merge upstream/main
 
 # Redeploy application (infrastructure unchanged)
-./deployment/scripts/deploy-application.sh
+./deployment/scripts/deploy-application.sh stg
 ```
 
 ## 📊 Monitoring and Logging
