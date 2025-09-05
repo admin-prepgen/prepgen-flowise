@@ -6,11 +6,11 @@
 set -e
 
 # Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+RED='[0;31m'
+GREEN='[0;32m'
+BLUE='[0;34m'
+YELLOW='[1;33m'
+NC='[0m' # No Color
 
 # Functions
 log_info() {
@@ -27,6 +27,14 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Usage
+usage() {
+    echo "Usage: $0 [stg|prd]"
+    echo "Deploys the application to the specified environment."
+    echo "If no environment is specified, it defaults to 'stg'."
+    exit 1
 }
 
 # Check dependencies
@@ -48,11 +56,14 @@ check_dependencies() {
 
 # Get project configuration
 get_config() {
-    if [ -f "deployment/terraform/terraform.tfvars" ]; then
-        PROJECT_ID=$(grep "^project_id" deployment/terraform/terraform.tfvars | cut -d'"' -f2)
-        REGION=$(grep "^region" deployment/terraform/terraform.tfvars | cut -d'"' -f2 || echo "us-central1")
+    local env=$1
+    local tfvars_file="deployment/terraform/terraform.tfvars.${env}"
+
+    if [ -f "${tfvars_file}" ]; then
+        PROJECT_ID=$(grep "^project_id" "${tfvars_file}" | cut -d'"' -f2)
+        REGION=$(grep "^region" "${tfvars_file}" | cut -d'"' -f2 || echo "us-central1")
     else
-        log_error "terraform.tfvars not found. Please run infrastructure deployment first."
+        log_error "${tfvars_file} not found. Please make sure the environment is set up correctly."
         exit 1
     fi
     
@@ -141,12 +152,21 @@ setup_monitoring() {
 
 # Main execution
 main() {
+    local env="stg" # Default environment
+    if [ -n "$1" ]; then
+        if [ "$1" == "stg" ] || [ "$1" == "prd" ]; then
+            env=$1
+        else
+            usage
+        fi
+    fi
+
     echo "==========================================="
     echo "Flowise Cloud Run Application Deployment"
     echo "==========================================="
     
     check_dependencies
-    get_config
+    get_config "${env}"
     
     log_info "Deploying to project: ${PROJECT_ID}"
     log_info "Region: ${REGION}"
@@ -166,7 +186,7 @@ main() {
     
     # Confirm deployment
     echo ""
-    log_warning "This will build and deploy the application to Cloud Run"
+    log_warning "This will build and deploy the application to Cloud Run in the '${env}' environment."
     read -p "Do you want to continue? (y/N): " confirm
     if [[ $confirm != [yY] ]]; then
         log_info "Deployment cancelled"
