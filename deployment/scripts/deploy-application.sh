@@ -194,7 +194,7 @@ main() {
     fi
     
     build_and_deploy
-    update_services_with_secrets
+    # update_services_with_secrets
     setup_monitoring
     get_service_urls
     
