@@ -12,7 +12,14 @@ import { AES, enc } from 'crypto-js'
 import { AIMessage, HumanMessage, BaseMessage } from '@langchain/core/messages'
 import { Document } from '@langchain/core/documents'
 import { getFileFromStorage } from './storageUtils'
-import { GetSecretValueCommand, SecretsManagerClient, SecretsManagerClientConfig } from '@aws-sdk/client-secrets-manager'
+import {
+    GetSecretValueCommand,
+    CreateSecretCommand,
+    SecretsManagerClient,
+    SecretsManagerClientConfig
+} from '@aws-sdk/client-secrets-manager'
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
+import { randomBytes } from 'crypto'
 import { customGet } from '../nodes/sequentialagents/commonUtils'
 import { TextSplitter } from 'langchain/text_splitter'
 import { DocumentLoader } from 'langchain/document_loaders/base'
@@ -27,6 +34,7 @@ export const FLOWISE_CHATID = 'flowise_chatId'
 
 let secretsManagerClient: SecretsManagerClient | null = null
 const USE_AWS_SECRETS_MANAGER = process.env.SECRETKEY_STORAGE_TYPE === 'aws'
+const USE_GCP_SECRETS_MANAGER = process.env.SECRETKEY_STORAGE_TYPE === 'gcp'
 if (USE_AWS_SECRETS_MANAGER) {
     const region = process.env.SECRETKEY_AWS_REGION || 'us-east-1' // Default region if not provided
     const accessKeyId = process.env.SECRETKEY_AWS_ACCESS_KEY
@@ -544,23 +552,92 @@ export const getEncryptionKeyPath = (): string => {
  * Returns the encryption key
  * @returns {Promise<string>}
  */
+/**
+ * Generate an encryption key
+ * @returns {string}
+ */
+export const generateEncryptKey = (): string => {
+    return randomBytes(24).toString('base64')
+}
+
+/**
+ * Returns the encryption key
+ * @returns {Promise<string>}
+ */
 const getEncryptionKey = async (): Promise<string> => {
     if (process.env.FLOWISE_SECRETKEY_OVERWRITE !== undefined && process.env.FLOWISE_SECRETKEY_OVERWRITE !== '') {
         return process.env.FLOWISE_SECRETKEY_OVERWRITE
     }
-    try {
-        if (USE_AWS_SECRETS_MANAGER && secretsManagerClient) {
-            const secretId = process.env.SECRETKEY_AWS_NAME || 'FlowiseEncryptionKey'
+    if (USE_AWS_SECRETS_MANAGER && secretsManagerClient) {
+        const secretId = process.env.SECRETKEY_AWS_NAME || 'FlowiseEncryptionKey'
+        try {
             const command = new GetSecretValueCommand({ SecretId: secretId })
             const response = await secretsManagerClient.send(command)
 
             if (response.SecretString) {
                 return response.SecretString
             }
+        } catch (error: any) {
+            if (error.name === 'ResourceNotFoundException') {
+                // Secret doesn't exist, create it
+                const newKey = generateEncryptKey()
+                const createCommand = new CreateSecretCommand({
+                    Name: secretId,
+                    SecretString: newKey
+                })
+                await secretsManagerClient.send(createCommand)
+                return newKey
+            }
+            throw error
         }
+    }
+    if (USE_GCP_SECRETS_MANAGER) {
+        const gcpSecretsManagerClient = new SecretManagerServiceClient()
+        const secretId = process.env.SECRETKEY_GCP_NAME || 'flowise-secret-key'
+        const projectId = process.env.SECRETKEY_GCP_PROJECT_ID
+        const secretPath = `projects/${projectId}/secrets/${secretId}/versions/latest`
+        try {
+            const [version] = await gcpSecretsManagerClient.accessSecretVersion({
+                name: secretPath
+            })
+            const secretValue = version.payload?.data?.toString()
+            if (secretValue) {
+                return secretValue
+            }
+        } catch (error: any) {
+            if (error.code === 5) {
+                // Secret doesn't exist, create it
+                const newKey = generateEncryptKey()
+                await gcpSecretsManagerClient.createSecret({
+                    parent: `projects/${projectId}`,
+                    secretId: secretId,
+                    secret: {
+                        replication: {
+                            automatic: {}
+                        }
+                    }
+                })
+                await gcpSecretsManagerClient.addSecretVersion({
+                    parent: `projects/${projectId}/secrets/${secretId}`,
+                    payload: {
+                        data: Buffer.from(newKey, 'utf8')
+                    }
+                })
+                return newKey
+            }
+            throw error
+        }
+    }
+    try {
         return await fs.promises.readFile(getEncryptionKeyPath(), 'utf8')
     } catch (error) {
-        throw new Error(error)
+        const encryptKey = generateEncryptKey()
+        const defaultLocation =
+            process.env.SECRETKEY_PATH
+                ? path.join(process.env.SECRETKEY_PATH, 'encryption.key')
+                : path.join(getUserHome(), '.flowise', 'encryption.key')
+        await fs.promises.writeFile(defaultLocation, encryptKey)
+        return encryptKey
     }
 }
 
@@ -582,6 +659,30 @@ const decryptCredentialData = async (encryptedData: string): Promise<ICommonObje
 
                 if (response.SecretString) {
                     const secretObj = JSON.parse(response.SecretString)
+                    decryptedDataStr = JSON.stringify(secretObj)
+                } else {
+                    throw new Error('Failed to retrieve secret value.')
+                }
+            } else {
+                const encryptKey = await getEncryptionKey()
+                const decryptedData = AES.decrypt(encryptedData, encryptKey)
+                decryptedDataStr = decryptedData.toString(enc.Utf8)
+            }
+        } catch (error) {
+            console.error(error)
+            throw new Error('Failed to decrypt credential data.')
+        }
+    } else if (USE_GCP_SECRETS_MANAGER) {
+        const gcpSecretsManagerClient = new SecretManagerServiceClient()
+        try {
+            if (encryptedData.startsWith('FlowiseCredential_')) {
+                const secretPath = `projects/${process.env.SECRETKEY_GCP_PROJECT_ID}/secrets/${encryptedData}/versions/latest`
+                const [version] = await gcpSecretsManagerClient.accessSecretVersion({
+                    name: secretPath
+                })
+                const secretValue = version.payload?.data?.toString()
+                if (secretValue) {
+                    const secretObj = JSON.parse(secretValue)
                     decryptedDataStr = JSON.stringify(secretObj)
                 } else {
                     throw new Error('Failed to retrieve secret value.')
