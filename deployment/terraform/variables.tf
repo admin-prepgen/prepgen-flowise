@@ -60,3 +60,14 @@ variable "vpc_network" {
   type        = string
   default     = "default"
 }
+
+variable "gcs_backend_bucket" {
+  description = "The name of the GCS bucket to store Terraform state"
+  type        = string
+}
+
+variable "gcs_backend_prefix" {
+  description = "The prefix for the Terraform state files within the GCS bucket"
+  type        = string
+  default     = "terraform/state"
+}

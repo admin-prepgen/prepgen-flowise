@@ -77,9 +77,10 @@ validate_config() {
 
 # Initialize Terraform
 init_terraform() {
+    local env=$1 # Added env as argument
     log_info "Initializing Terraform..."
     cd deployment/terraform
-    terraform init
+    terraform init -backend-config="bucket=${GCS_BACKEND_BUCKET}" -backend-config="prefix=terraform/state/${env}" -reconfigure
     cd ../..
     log_success "Terraform initialized"
 }
@@ -89,7 +90,11 @@ plan_terraform() {
     local env=$1
     log_info "Planning Terraform deployment for ${env} environment..."
     cd deployment/terraform
-    terraform plan -var-file="terraform.tfvars.${env}"
+    if [ "$env" == "prd" ]; then
+        terraform plan -var-file="terraform.tfvars.prd" -var="gcs_backend_bucket=${GCS_BACKEND_BUCKET}"
+    else
+        terraform plan -var-file="terraform.tfvars.stg"
+    fi
     cd ../..
     log_success "Terraform plan completed"
 }
@@ -99,7 +104,11 @@ apply_terraform() {
     local env=$1
     log_info "Applying Terraform deployment for ${env} environment..."
     cd deployment/terraform
-    terraform apply -var-file="terraform.tfvars.${env}" -auto-approve
+    if [ "$env" == "prd" ]; then
+        terraform apply -var-file="terraform.tfvars.prd" -auto-approve -var="gcs_backend_bucket=${GCS_BACKEND_BUCKET}"
+    else
+        terraform apply -var-file="terraform.tfvars.stg" -auto-approve
+    fi
     cd ../..
     log_success "Infrastructure deployed successfully"
 }
@@ -110,6 +119,18 @@ show_outputs() {
     cd deployment/terraform
     terraform output
     cd ../..
+}
+
+# Create GCS Backend Bucket
+create_gcs_backend_bucket() {
+    log_info "Checking/Creating GCS backend bucket: gs://${GCS_BACKEND_BUCKET}"
+    if ! gsutil ls "gs://${GCS_BACKEND_BUCKET}" &> /dev/null; then
+        log_info "GCS backend bucket gs://${GCS_BACKEND_BUCKET} not found. Creating..."
+        gsutil mb -p "${PROJECT_ID}" "gs://${GCS_BACKEND_BUCKET}"
+        log_success "GCS backend bucket gs://${GCS_BACKEND_BUCKET} created."
+    else
+        log_success "GCS backend bucket gs://${GCS_BACKEND_BUCKET} already exists."
+    fi
 }
 
 # Main execution
@@ -141,8 +162,12 @@ main() {
     PROJECT_ID=$(grep "^project_id" "deployment/terraform/terraform.tfvars.${env}" | cut -d'"' -f2)
     log_info "Setting GCP project to: $PROJECT_ID"
     gcloud config set project "$PROJECT_ID"
+
+    # Define GCS Backend Bucket Name
+    GCS_BACKEND_BUCKET="${PROJECT_ID}-tf-state"
+    create_gcs_backend_bucket
     
-    init_terraform
+    init_terraform "${env}"
     plan_terraform "${env}"
     
     # Confirm deployment
