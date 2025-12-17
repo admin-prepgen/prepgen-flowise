@@ -141,28 +141,41 @@ export async function MCPTool({
 }): Promise<Tool> {
     return tool(
         async (input): Promise<string> => {
-            // Create a new client for this request
             let client
             try {
-                client = await toolkit.createClient()
-            } catch (error) {
-                console.error(`Error creating client for tool ${name}:`, error)
-                throw error
-            }
+                try {
+                    client = await toolkit.createClient()
+                    const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
+                    const res = await client.request(req, CallToolResultSchema)
+                    const content = res.content
+                    return JSON.stringify(content)
+                } catch (error: any) {
+                    const msg = error?.message || String(error)
+                    // Check for 400 (Bad Request) or specific SSE errors which indicate session issues
+                    if (msg.includes('400') || msg.includes('SseError') || msg.includes('Session ID')) {
+                        console.warn(`[MCP] Tool ${name} encountered error: "${msg}". Retrying with fresh client...`)
 
-            try {
-                const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
-                const res = await client.request(req, CallToolResultSchema)
-                const content = res.content
-                const contentString = JSON.stringify(content)
-                return contentString
+                        // Ensure old client is closed
+                        if (client) {
+                            await client.close().catch(() => { })
+                            client = undefined
+                        }
+
+                        // Retry once
+                        client = await toolkit.createClient()
+                        const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
+                        const res = await client.request(req, CallToolResultSchema)
+                        return JSON.stringify(res.content)
+                    }
+                    throw error
+                }
             } catch (error) {
                 console.error(`Error invoking tool ${name}:`, error)
                 throw error
             } finally {
                 // Always close the client after the request completes
                 if (client) {
-                    await client.close()
+                    await client.close().catch(() => { })
                 }
             }
         },
