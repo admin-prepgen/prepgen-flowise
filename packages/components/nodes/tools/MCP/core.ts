@@ -70,7 +70,14 @@ export class MCPToolkit extends BaseToolkit {
                             headers: this.serverParams.headers
                         },
                         eventSourceInit: {
-                            fetch: (url, init) => fetch(url, { ...init, headers: this.serverParams.headers })
+                            fetch: (url, init) =>
+                                fetch(url, {
+                                    ...init,
+                                    headers: {
+                                        ...(init?.headers || {}),
+                                        ...this.serverParams.headers
+                                    }
+                                })
                         }
                     })
                 } else {
@@ -135,7 +142,13 @@ export async function MCPTool({
     return tool(
         async (input): Promise<string> => {
             // Create a new client for this request
-            const client = await toolkit.createClient()
+            let client
+            try {
+                client = await toolkit.createClient()
+            } catch (error) {
+                console.error(`Error creating client for tool ${name}:`, error)
+                throw error
+            }
 
             try {
                 const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
@@ -143,9 +156,14 @@ export async function MCPTool({
                 const content = res.content
                 const contentString = JSON.stringify(content)
                 return contentString
+            } catch (error) {
+                console.error(`Error invoking tool ${name}:`, error)
+                throw error
             } finally {
                 // Always close the client after the request completes
-                await client.close()
+                if (client) {
+                    await client.close()
+                }
             }
         },
         {
