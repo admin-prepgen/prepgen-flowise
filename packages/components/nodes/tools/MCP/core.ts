@@ -70,14 +70,18 @@ export class MCPToolkit extends BaseToolkit {
                             headers: this.serverParams.headers
                         },
                         eventSourceInit: {
-                            fetch: (url, init) =>
-                                fetch(url, {
+                            fetch: (url, init) => {
+                                console.log(`[MCP Debug] SSE Fetch URL: ${url}`)
+                                const headers = {
+                                    ...(init?.headers || {}),
+                                    ...this.serverParams.headers
+                                }
+                                console.log(`[MCP Debug] SSE Fetch Headers:`, JSON.stringify(headers, null, 2))
+                                return fetch(url, {
                                     ...init,
-                                    headers: {
-                                        ...(init?.headers || {}),
-                                        ...this.serverParams.headers
-                                    }
+                                    headers
                                 })
+                            }
                         }
                     })
                 } else {
