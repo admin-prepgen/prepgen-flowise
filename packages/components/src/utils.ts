@@ -55,6 +55,11 @@ if (USE_AWS_SECRETS_MANAGER) {
     secretsManagerClient = new SecretsManagerClient(secretManagerConfig)
 }
 
+let gcpSecretsManagerClient: SecretManagerServiceClient | null = null
+if (USE_GCP_SECRETS_MANAGER) {
+    gcpSecretsManagerClient = new SecretManagerServiceClient()
+}
+
 /*
  * List of dependencies allowed to be import in @flowiseai/nodevm
  */
@@ -592,8 +597,8 @@ const getEncryptionKey = async (): Promise<string> => {
             throw error
         }
     }
-    if (USE_GCP_SECRETS_MANAGER) {
-        const gcpSecretsManagerClient = new SecretManagerServiceClient()
+    if (USE_GCP_SECRETS_MANAGER && gcpSecretsManagerClient) {
+        // const gcpSecretsManagerClient = new SecretManagerServiceClient()
         const secretId = process.env.SECRETKEY_GCP_NAME || 'flowise-secret-key'
         const projectId = process.env.SECRETKEY_GCP_PROJECT_ID
         const secretPath = `projects/${projectId}/secrets/${secretId}/versions/latest`
@@ -673,8 +678,8 @@ const decryptCredentialData = async (encryptedData: string): Promise<ICommonObje
             console.error(error)
             throw new Error('Failed to decrypt credential data.')
         }
-    } else if (USE_GCP_SECRETS_MANAGER) {
-        const gcpSecretsManagerClient = new SecretManagerServiceClient()
+    } else if (USE_GCP_SECRETS_MANAGER && gcpSecretsManagerClient) {
+        // const gcpSecretsManagerClient = new SecretManagerServiceClient()
         try {
             if (encryptedData.startsWith('FlowiseCredential_')) {
                 const secretPath = `projects/${process.env.SECRETKEY_GCP_PROJECT_ID}/secrets/${encryptedData}/versions/latest`
@@ -1330,13 +1335,13 @@ export const handleDocumentLoaderMetadata = (
             _omitMetadataKeys === '*'
                 ? metadata
                 : omit(
-                      {
-                          ...metadata,
-                          ...doc.metadata,
-                          ...(sourceIdKey ? { [sourceIdKey]: doc.metadata[sourceIdKey] || sourceIdKey } : undefined)
-                      },
-                      omitMetadataKeys
-                  )
+                    {
+                        ...metadata,
+                        ...doc.metadata,
+                        ...(sourceIdKey ? { [sourceIdKey]: doc.metadata[sourceIdKey] || sourceIdKey } : undefined)
+                    },
+                    omitMetadataKeys
+                )
     }))
 }
 
@@ -1436,8 +1441,7 @@ export const refreshOAuth2Token = async (
             } catch (error) {
                 console.error('Failed to refresh access token:', error)
                 throw new Error(
-                    `Failed to refresh access token: ${
-                        error instanceof Error ? error.message : 'Unknown error'
+                    `Failed to refresh access token: ${error instanceof Error ? error.message : 'Unknown error'
                     }. Please re-authorize the credential.`
                 )
             }
@@ -1873,9 +1877,9 @@ export const parseJsonBody = (body: string): any => {
 
                     throw new Error(
                         `Invalid JSON format in body. Original error: ${error.message}. ` +
-                            `After cleanup attempts: ${secondError.message}. 3rd attempt: ${thirdError.message}. Final attempt: ${fourthError.message}.\n\n` +
-                            `Common fixes:\n${suggestions.join('\n')}\n\n` +
-                            `Received body: ${body.substring(0, 200)}${body.length > 200 ? '...' : ''}`
+                        `After cleanup attempts: ${secondError.message}. 3rd attempt: ${thirdError.message}. Final attempt: ${fourthError.message}.\n\n` +
+                        `Common fixes:\n${suggestions.join('\n')}\n\n` +
+                        `Received body: ${body.substring(0, 200)}${body.length > 200 ? '...' : ''}`
                     )
                 }
             }

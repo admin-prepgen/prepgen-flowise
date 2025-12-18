@@ -6,6 +6,13 @@ import { z } from 'zod'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 
+import { createLogger, format, transports } from 'winston'
+
+const logger = createLogger({
+    format: format.combine(format.timestamp(), format.json()),
+    transports: [new transports.Console()]
+})
+
 export class MCPToolkit extends BaseToolkit {
     tools: Tool[] = []
     _tools: ListToolsResult | null = null
@@ -53,6 +60,32 @@ export class MCPToolkit extends BaseToolkit {
 
             const baseUrl = new URL(this.serverParams.url)
             try {
+                const headers = this.serverParams.headers || {}
+                logger.error(`[MCP Debug] Initializing SSE Client. Configured headers keys: ${Object.keys(headers).join(', ')}`)
+                logger.error(`[MCP Debug] Header values:`, { headers })
+
+                transport = new SSEClientTransport(baseUrl, {
+                    requestInit: {
+                        headers
+                    },
+                    eventSourceInit: {
+                        // @ts-ignore
+                        headers,
+                        fetch: (url, init) => {
+                            const mergedHeaders = {
+                                ...(init?.headers || {}),
+                                ...headers
+                            }
+                            return fetch(url, {
+                                ...init,
+                                headers: mergedHeaders
+                            })
+                        }
+                    }
+                })
+                await client.connect(transport)
+            } catch (error) {
+                console.warn('SSE Transport failed, falling back to StreamableHTTP', error)
                 if (this.serverParams.headers) {
                     transport = new StreamableHTTPClientTransport(baseUrl, {
                         requestInit: {
@@ -61,31 +94,6 @@ export class MCPToolkit extends BaseToolkit {
                     })
                 } else {
                     transport = new StreamableHTTPClientTransport(baseUrl)
-                }
-                await client.connect(transport)
-            } catch (error) {
-                if (this.serverParams.headers) {
-                    transport = new SSEClientTransport(baseUrl, {
-                        requestInit: {
-                            headers: this.serverParams.headers
-                        },
-                        eventSourceInit: {
-                            fetch: (url, init) => {
-                                console.log(`[MCP Debug] SSE Fetch URL: ${url}`)
-                                const headers = {
-                                    ...(init?.headers || {}),
-                                    ...this.serverParams.headers
-                                }
-                                console.log(`[MCP Debug] SSE Fetch Headers:`, JSON.stringify(headers, null, 2))
-                                return fetch(url, {
-                                    ...init,
-                                    headers
-                                })
-                            }
-                        }
-                    })
-                } else {
-                    transport = new SSEClientTransport(baseUrl)
                 }
                 await client.connect(transport)
             }

@@ -95,6 +95,10 @@ if (USE_AWS_SECRETS_MANAGER) {
 }
 
 const USE_GCP_SECRETS_MANAGER = process.env.SECRETKEY_STORAGE_TYPE === 'gcp'
+let gcpSecretsManagerClient: SecretManagerServiceClient | null = null
+if (USE_GCP_SECRETS_MANAGER) {
+    gcpSecretsManagerClient = new SecretManagerServiceClient()
+}
 
 export const databaseEntities: IDatabaseEntity = {
     ChatFlow: ChatFlow,
@@ -1358,10 +1362,10 @@ export const findAvailableConfigs = (reactFlowNodes: IReactFlowNode[], component
                     name: inputParam.name,
                     type: inputParam.options
                         ? inputParam.options
-                              ?.map((option) => {
-                                  return option.name
-                              })
-                              .join(', ')
+                            ?.map((option) => {
+                                return option.name
+                            })
+                            .join(', ')
                         : 'string'
                 }
             } else if (inputParam.type === 'credential') {
@@ -1582,8 +1586,8 @@ export const getEncryptionKey = async (): Promise<string> => {
             throw error
         }
     }
-    if (USE_GCP_SECRETS_MANAGER) {
-        const gcpSecretsManagerClient = new SecretManagerServiceClient()
+    if (USE_GCP_SECRETS_MANAGER && gcpSecretsManagerClient) {
+        // const gcpSecretsManagerClient = new SecretManagerServiceClient()
         const secretId = process.env.SECRETKEY_GCP_NAME || 'flowise-secret-key'
         const projectId = process.env.SECRETKEY_GCP_PROJECT_ID
         const secretPath = `projects/${projectId}/secrets/${secretId}/versions/latest`
@@ -1676,8 +1680,8 @@ export const decryptCredentialData = async (
             console.error(error)
             throw new Error('Failed to decrypt credential data.')
         }
-    } else if (USE_GCP_SECRETS_MANAGER) {
-        const gcpSecretsManagerClient = new SecretManagerServiceClient()
+    } else if (USE_GCP_SECRETS_MANAGER && gcpSecretsManagerClient) {
+        // const gcpSecretsManagerClient = new SecretManagerServiceClient()
         try {
             if (encryptedData.startsWith('FlowiseCredential_')) {
                 const secretPath = `projects/${process.env.SECRETKEY_GCP_PROJECT_ID}/secrets/${encryptedData}/versions/latest`
