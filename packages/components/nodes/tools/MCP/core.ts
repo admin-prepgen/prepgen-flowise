@@ -55,11 +55,24 @@ export class MCPToolkit extends BaseToolkit {
             await client.connect(transport)
         } else {
             if (this.serverParams.url === undefined) {
-                throw new Error('URL is required for SSE transport')
+                throw new Error('URL is required for transport')
             }
 
             const baseUrl = new URL(this.serverParams.url)
             try {
+                if (this.serverParams.headers) {
+                    transport = new StreamableHTTPClientTransport(baseUrl, {
+                        requestInit: {
+                            headers: this.serverParams.headers
+                        }
+                    })
+                } else {
+                    transport = new StreamableHTTPClientTransport(baseUrl)
+                }
+                await client.connect(transport)
+            } catch (error) {
+                console.warn('StreamableHTTP Transport failed, falling back to SSE', error)
+
                 const headers = this.serverParams.headers || {}
                 logger.error(`[MCP Debug] Initializing SSE Client. Configured headers keys: ${Object.keys(headers).join(', ')}`)
                 logger.error(`[MCP Debug] Header values:`, { headers })
@@ -83,18 +96,6 @@ export class MCPToolkit extends BaseToolkit {
                         }
                     }
                 })
-                await client.connect(transport)
-            } catch (error) {
-                console.warn('SSE Transport failed, falling back to StreamableHTTP', error)
-                if (this.serverParams.headers) {
-                    transport = new StreamableHTTPClientTransport(baseUrl, {
-                        requestInit: {
-                            headers: this.serverParams.headers
-                        }
-                    })
-                } else {
-                    transport = new StreamableHTTPClientTransport(baseUrl)
-                }
                 await client.connect(transport)
             }
         }
@@ -158,7 +159,7 @@ export async function MCPTool({
                 try {
                     client = await toolkit.createClient()
                     const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
-                    const res = await client.request(req, CallToolResultSchema)
+                    const res = await client.request(req, CallToolResultSchema, { timeout: 300000 })
                     const content = res.content
                     return JSON.stringify(content)
                 } catch (error: any) {
@@ -176,7 +177,7 @@ export async function MCPTool({
                         // Retry once
                         client = await toolkit.createClient()
                         const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
-                        const res = await client.request(req, CallToolResultSchema)
+                        const res = await client.request(req, CallToolResultSchema, { timeout: 300000 })
                         return JSON.stringify(res.content)
                     }
                     throw error
