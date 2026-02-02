@@ -3,6 +3,7 @@ import * as path from 'path'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { omit, cloneDeep } from 'lodash'
+import { setMaxListeners } from 'events'
 import {
     IFileUpload,
     convertSpeechToText,
@@ -1086,6 +1087,7 @@ export const utilBuildChatflow = async (req: Request, isInternal: boolean = fals
         } else {
             // Add abort controller to the pool
             const signal = new AbortController()
+            setMaxListeners(50, signal.signal)
             appServer.abortControllerPool.add(abortControllerId, signal)
             executeData.signal = signal
 

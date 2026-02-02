@@ -29,7 +29,7 @@ export class MCPToolkit extends BaseToolkit {
 
     // Method to create a new client with transport
     async createClient(): Promise<Client> {
-        const client = new Client(
+        let client = new Client(
             {
                 name: 'flowise-client',
                 version: '1.0.0'
@@ -72,6 +72,23 @@ export class MCPToolkit extends BaseToolkit {
                 await client.connect(transport)
             } catch (error) {
                 console.warn('StreamableHTTP Transport failed, falling back to SSE', error)
+
+                // Close the failed client if it exists and create a fresh one
+                try {
+                    await client.close()
+                } catch (e) {
+                    // Ignore close error
+                }
+
+                client = new Client(
+                    {
+                        name: 'flowise-client',
+                        version: '1.0.0'
+                    },
+                    {
+                        capabilities: {}
+                    }
+                )
 
                 const headers = this.serverParams.headers || {}
                 logger.error(`[MCP Debug] Initializing SSE Client. Configured headers keys: ${Object.keys(headers).join(', ')}`)

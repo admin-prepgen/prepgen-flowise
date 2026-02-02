@@ -19,6 +19,7 @@ import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
 import { StructuredTool } from '@langchain/core/tools'
 import { BaseMessage, HumanMessage, AIMessage, AIMessageChunk, ToolMessage } from '@langchain/core/messages'
+import { setMaxListeners } from 'events'
 import { IChatFlow, IComponentNodes, IDepthQueue, IReactFlowNode, IReactFlowEdge, IMessage, IncomingInput, IFlowConfig } from '../Interface'
 import { databaseEntities, clearSessionMemory, getAPIOverrideConfig } from '../utils'
 import { replaceInputsWithConfig, resolveVariables } from '.'
@@ -98,6 +99,9 @@ export const buildAgentGraph = async ({
             uploads,
             baseURL,
             signal: signal ?? new AbortController()
+        }
+        if (options.signal) {
+            setMaxListeners(50, options.signal.signal)
         }
 
         let streamResults

@@ -12,6 +12,7 @@ import logger from '../utils/logger'
 import { generateAgentflowv2 as generateAgentflowv2_json } from 'flowise-components'
 import { databaseEntities } from '../utils'
 import { executeCustomNodeFunction } from '../utils/executeCustomNodeFunction'
+import { setMaxListeners } from 'events'
 
 interface PredictionQueueOptions {
     appDataSource: DataSource
@@ -96,6 +97,7 @@ export class PredictionQueue extends BaseQueue {
         if (this.abortControllerPool) {
             const abortControllerId = `${data.chatflow.id}_${data.chatId}`
             const signal = new AbortController()
+            setMaxListeners(50, signal.signal)
             this.abortControllerPool.add(abortControllerId, signal)
             data.signal = signal
         }
