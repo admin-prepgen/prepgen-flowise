@@ -60,7 +60,7 @@ steps:
       - '--update-secrets=DATABASE_HOST=flowise-db-host:latest,DATABASE_NAME=flowise-db-name:latest,DATABASE_USER=flowise-db-user:latest,DATABASE_PASSWORD=flowise-db-password:latest,REDIS_HOST=flowise-redis-host:latest,REDIS_PASSWORD=flowise-redis-password:latest'
       - '--memory=2Gi'
       - '--cpu=2'
-      - '--min-instances=1'
+      - '--min-instances=0'
       - '--max-instances=3'
       - '--timeout=3600'
       - '--concurrency=1'
