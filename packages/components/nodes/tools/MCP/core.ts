@@ -2,9 +2,10 @@ import { CallToolRequest, CallToolResultSchema, ListToolsResult, ListToolsResult
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { BaseToolkit, tool, Tool } from '@langchain/core/tools'
-import { z } from 'zod'
+import { z, type ZodTypeAny } from 'zod/v3'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
+import { checkDenyList, secureFetch } from '../../../src/httpSecurity'
 
 import { createLogger, format, transports } from 'winston'
 
@@ -59,6 +60,7 @@ export class MCPToolkit extends BaseToolkit {
             }
 
             const baseUrl = new URL(this.serverParams.url)
+            await checkDenyList(this.serverParams.url)
             try {
                 if (this.serverParams.headers) {
                     transport = new StreamableHTTPClientTransport(baseUrl, {
@@ -94,25 +96,29 @@ export class MCPToolkit extends BaseToolkit {
                 logger.error(`[MCP Debug] Initializing SSE Client. Configured headers keys: ${Object.keys(headers).join(', ')}`)
                 logger.error(`[MCP Debug] Header values:`, { headers })
 
-                transport = new SSEClientTransport(baseUrl, {
-                    requestInit: {
-                        headers
-                    },
-                    eventSourceInit: {
-                        // @ts-ignore
-                        headers,
-                        fetch: (url, init) => {
-                            const mergedHeaders = {
-                                ...(init?.headers || {}),
-                                ...headers
+                if (this.serverParams.headers) {
+                    transport = new SSEClientTransport(baseUrl, {
+                        requestInit: {
+                            headers: this.serverParams.headers
+                        },
+                        eventSourceInit: {
+                            fetch: async (url, init) => {
+                                return secureFetch(url.toString(), {
+                                    ...(init as any),
+                                    headers: this.serverParams.headers
+                                }) as any
                             }
-                            return fetch(url, {
-                                ...init,
-                                headers: mergedHeaders
-                            })
                         }
-                    }
-                })
+                    })
+                } else {
+                    transport = new SSEClientTransport(baseUrl, {
+                        eventSourceInit: {
+                            fetch: async (url, init) => {
+                                return secureFetch(url.toString(), init as any) as any
+                            }
+                        }
+                    })
+                }
                 await client.connect(transport)
             }
         }
@@ -144,7 +150,7 @@ export class MCPToolkit extends BaseToolkit {
             return await MCPTool({
                 toolkit: this,
                 name: tool.name,
-                description: tool.description || '',
+                description: tool.description || tool.name,
                 argsSchema: createSchemaModel(tool.inputSchema)
             })
         })
@@ -220,17 +226,17 @@ export async function MCPTool({
 function createSchemaModel(
     inputSchema: {
         type: 'object'
-        properties?: import('zod').objectOutputType<{}, import('zod').ZodTypeAny, 'passthrough'> | undefined
+        properties?: Record<string, unknown>
     } & { [k: string]: unknown }
-): any {
+): z.ZodObject<Record<string, ZodTypeAny>> {
     if (inputSchema.type !== 'object' || !inputSchema.properties) {
         throw new Error('Invalid schema type or missing properties')
     }
 
-    const schemaProperties = Object.entries(inputSchema.properties).reduce((acc, [key, _]) => {
+    const schemaProperties = Object.entries(inputSchema.properties).reduce((acc, [key]) => {
         acc[key] = z.any()
         return acc
-    }, {} as Record<string, import('zod').ZodTypeAny>)
+    }, {} as Record<string, ZodTypeAny>)
 
     return z.object(schemaProperties)
 }
@@ -307,7 +313,7 @@ export const validateCommandInjection = (args: string[]): void => {
 }
 
 export const validateEnvironmentVariables = (env: Record<string, any>): void => {
-    const dangerousEnvVars = ['PATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH']
+    const dangerousEnvVars = ['PATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS']
 
     for (const [key, value] of Object.entries(env)) {
         if (dangerousEnvVars.includes(key)) {
@@ -316,6 +322,90 @@ export const validateEnvironmentVariables = (env: Record<string, any>): void => 
 
         if (typeof value === 'string' && value.includes('\0')) {
             throw new Error(`Environment variable '${key}' contains null byte`)
+        }
+    }
+}
+
+/**
+ * Validates that command arguments don't contain flags that enable arbitrary code execution
+ * This prevents attacks where whitelisted commands are used with dangerous flags
+ * (e.g., "npx -c malicious-command" or "python -c malicious-code")
+ * @param command The command to validate
+ * @param args The arguments to validate
+ */
+export const validateCommandFlags = (command: string, args: string[]): void => {
+    // Define dangerous flags for each command that enable code execution
+    const dangerousFlagsByCommand: Record<string, string[]> = {
+        npx: [
+            '-c', // Execute shell commands
+            '--call', // Execute shell commands
+            '--shell-auto-fallback', // Shell execution fallback
+            '-y' // Auto-confirms installation prompts
+        ],
+        node: [
+            '-e', // Execute JavaScript code
+            '--eval', // Execute JavaScript code
+            '-p', // Evaluate and print JavaScript code
+            '--print', // Evaluate and print JavaScript code
+            '--inspect', // Enable remote debugging (security risk)
+            '--inspect-brk', // Enable remote debugging with breakpoint (security risk)
+            '--experimental-policy' // Could load malicious policies
+        ],
+        python: [
+            '-c', // Execute Python code
+            '-m' // Run library modules (could run malicious modules)
+        ],
+        python3: [
+            '-c', // Execute Python code
+            '-m' // Run library modules (could run malicious modules)
+        ],
+        docker: [
+            'run', // Run containers (too powerful)
+            'exec', // Execute in containers
+            '-v', // Mount host filesystems
+            '--volume', // Mount host filesystems
+            '--privileged', // Privileged mode
+            '--cap-add', // Add capabilities
+            '--security-opt', // Modify security options
+            '--network', // Host network access (catches --network=host and --network host)
+            '--pid', // Host PID namespace (catches --pid=host and --pid host)
+            '--ipc' // Host IPC namespace (catches --ipc=host and --ipc host)
+        ]
+    }
+
+    const dangerousFlags = dangerousFlagsByCommand[command] || []
+
+    // Collect single-char dangerous flags (e.g. '-c' -> 'c') for combined flag detection
+    const dangerousShortChars = new Set(dangerousFlags.filter((f) => /^-[a-zA-Z]$/.test(f)).map((f) => f[1].toLowerCase()))
+
+    for (const arg of args) {
+        if (typeof arg !== 'string') continue
+
+        const normalizedArg = arg.toLowerCase().trim()
+
+        // Check for dangerous flags in various forms (exact, =value, space-separated value)
+        for (const flag of dangerousFlags) {
+            const lowerCaseFlag = flag.toLowerCase()
+            if (normalizedArg === lowerCaseFlag) {
+                throw new Error(`Argument '${arg}' is not allowed for command '${command}'.`)
+            }
+            if (normalizedArg.startsWith(lowerCaseFlag + '=')) {
+                throw new Error(`Argument '${arg}' contains flag '${flag}' that is not allowed for command '${command}'.`)
+            }
+            if (flag.startsWith('-') && normalizedArg.startsWith(lowerCaseFlag + ' ')) {
+                throw new Error(`Argument '${arg}' contains flag '${flag}' that is not allowed for command '${command}'.`)
+            }
+        }
+
+        // Check for combined short flags (e.g. "-yc" = "-y" + "-c")
+        // A combined flag starts with a single '-', is not a long flag '--', and has multiple characters after '-'
+        if (/^-[a-zA-Z]{2,}/.test(normalizedArg)) {
+            const flagChars = normalizedArg.slice(1) // strip leading '-'
+            for (const ch of flagChars) {
+                if (dangerousShortChars.has(ch)) {
+                    throw new Error(`Argument '${arg}' contains dangerous flag '-${ch}' for command '${command}'.`)
+                }
+            }
         }
     }
 }
@@ -337,6 +427,11 @@ export const validateMCPServerConfig = (serverParams: any): void => {
     if (serverParams.args && Array.isArray(serverParams.args)) {
         validateArgsForLocalFileAccess(serverParams.args)
         validateCommandInjection(serverParams.args)
+
+        // Validate command-specific dangerous flags
+        if (serverParams.command) {
+            validateCommandFlags(serverParams.command, serverParams.args)
+        }
     }
 
     // Validate environment variables

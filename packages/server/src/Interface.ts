@@ -83,6 +83,7 @@ export interface IChatMessage {
     usedTools?: string
     fileAnnotations?: string
     agentReasoning?: string
+    reasonContent?: string
     fileUploads?: string
     artifacts?: string
     chatType: string
@@ -344,15 +345,6 @@ export interface ICredentialReturnResponse extends ICredential {
 export interface IUploadFileSizeAndTypes {
     fileTypes: string[]
     maxUploadSize: number
-}
-
-export interface IApiKey {
-    id: string
-    keyName: string
-    apiKey: string
-    apiSecret: string
-    updatedDate: Date
-    workspaceId: string
 }
 
 export interface ICustomTemplate {

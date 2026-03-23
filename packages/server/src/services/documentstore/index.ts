@@ -2,6 +2,7 @@ import { Document } from '@langchain/core/documents'
 import {
     addArrayFilesToStorage,
     addSingleFileToStorage,
+    extractResponseContent,
     getFileFromStorage,
     getFileFromUpload,
     ICommonObject,
@@ -46,6 +47,7 @@ import { UpsertHistory } from '../../database/entities/UpsertHistory'
 import { getWorkspaceSearchOptions } from '../../enterprise/utils/ControllerServiceUtils'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'
 import { getErrorMessage } from '../../errors/utils'
+import { validateFileMimeTypeAndExtensionMatch } from '../../utils/fileValidation'
 import { databaseEntities, getAppVersion, saveUpsertFlowData } from '../../utils'
 import { DOCUMENT_STORE_BASE_FOLDER, INPUT_PARAMS_TYPE, OMIT_QUEUE_JOB_DATA } from '../../utils/constants'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -1775,6 +1777,7 @@ const upsertDocStore = async (
         const docStoreBody = typeof data.docStore === 'string' ? JSON.parse(data.docStore) : data.docStore
         const newDocumentStore = docStoreBody ?? { name: `Document Store ${Date.now().toString()}` }
         const docStore = DocumentStoreDTO.toEntity(newDocumentStore)
+        docStore.workspaceId = workspaceId // enforce trusted server-side value, never from user input
         const documentStore = appDataSource.getRepository(DocumentStore).create(docStore)
         const dbResponse = await appDataSource.getRepository(DocumentStore).save(documentStore)
         storeId = dbResponse.id
@@ -1826,6 +1829,9 @@ const upsertDocStore = async (
             const fileBuffer = await getFileFromUpload(file.path ?? file.key)
             // Address file name with special characters: https://github.com/expressjs/multer/issues/1104
             file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8')
+
+            // Validate file extension, MIME type, and content to prevent security vulnerabilities
+            validateFileMimeTypeAndExtensionMatch(file.originalname, file.mimetype)
 
             try {
                 checkStorage(orgId, subscriptionId, usageCacheManager)
@@ -2129,7 +2135,7 @@ const refreshDocStoreMiddleware = async (
     }
 }
 
-const generateDocStoreToolDesc = async (docStoreId: string, selectedChatModel: ICommonObject): Promise<string> => {
+const generateDocStoreToolDesc = async (docStoreId: string, selectedChatModel: ICommonObject): Promise<ICommonObject> => {
     try {
         const appServer = getRunningExpressApp()
 
@@ -2171,7 +2177,8 @@ const generateDocStoreToolDesc = async (docStoreId: string, selectedChatModel: I
             const response = await llmNodeInstance.invoke(
                 DOCUMENTSTORE_TOOL_DESCRIPTION_PROMPT_GENERATOR.replace('{context}', chunksPageContent)
             )
-            return response
+            const content = extractResponseContent(response)
+            return { content }
         }
 
         throw new InternalFlowiseError(
